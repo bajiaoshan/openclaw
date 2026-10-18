@@ -2,6 +2,7 @@ import type { ExecHost } from "../infra/exec-approvals.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { resolveAgentConfig } from "./agent-scope-config.js";
 import {
+  canRecoverExecOutput,
   execOutputLogDetails,
   execOutputLogNote,
   type ExecOutputLog,
@@ -34,12 +35,16 @@ export function buildExecForegroundResult(params: {
   outcome: ExecProcessOutcome;
   cwd?: string;
   warningText?: string;
-  aggregateOutputDropped?: boolean;
+  discardedOutputChars?: number;
   outputLog?: ExecOutputLog;
 }): AgentToolResult<ExecToolDetails> {
   const warningText = params.warningText?.trim() ? `${params.warningText}\n\n` : "";
+  const discardedChars = params.discardedOutputChars ?? 0;
   const retentionCapNote =
-    params.aggregateOutputDropped && !params.outputLog ? EXEC_RETENTION_CAP_NOTE : "";
+    discardedChars > 0 && !canRecoverExecOutput(params.outputLog, discardedChars)
+      ? EXEC_RETENTION_CAP_NOTE
+      : "";
+  const outputLogNote = execOutputLogNote(params.outputLog);
   const outcome = params.outcome;
   const details: ExecToolDetails = {
     ...execOutputLogDetails(params.outputLog),
@@ -64,10 +69,10 @@ export function buildExecForegroundResult(params: {
           "SIGKILL alone does not identify whether the Linux OOM killer, an operator, or another process sent it. " +
           "Check cgroup memory events or kernel logs. If they show memory pressure, narrow the command or adjust memory, concurrency, or resource limits."
         : "";
-    const outputText = `${retentionCapNote}${warningText}${params.outcome.reason}${linuxOomGuidance}${execOutputLogNote(params.outputLog)}`;
+    const outputText = `${retentionCapNote}${outputLogNote}${warningText}${params.outcome.reason}${linuxOomGuidance}`;
     return failedTextResult(outputText, { ...details, status: "failed" });
   }
-  const outputText = `${retentionCapNote}${warningText}${renderExecOutputText(params.outcome.aggregated)}${execOutputLogNote(params.outputLog)}`;
+  const outputText = `${retentionCapNote}${outputLogNote}${warningText}${renderExecOutputText(params.outcome.aggregated)}`;
   return textResult(outputText, details);
 }
 

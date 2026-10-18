@@ -702,17 +702,16 @@ export function createExecTool(defaults?: ExecToolDefaults) {
                 outcome: completed.outcome,
                 cwd: run.session.cwd,
                 warningText: getWarningText(),
-                aggregateOutputDropped:
-                  run.session.totalOutputChars > run.session.aggregated.length,
+                discardedOutputChars: run.session.totalOutputChars - run.session.aggregated.length,
                 outputLog: run.session.outputLog,
               })
             : {
                 content: [
                   {
                     type: "text",
-                    text: `${getWarningText()}Command still running (session ${run.session.id}, pid ${
+                    text: `${execOutputLogNote(run.session.outputLog)}${getWarningText()}Command still running (session ${run.session.id}, pid ${
                       run.session.pid ?? "n/a"
-                    }). ${backgroundFollowUp}${execOutputLogNote(run.session.outputLog)}`,
+                    }). ${backgroundFollowUp}`,
                   },
                 ],
                 details: {

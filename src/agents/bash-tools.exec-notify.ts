@@ -399,9 +399,12 @@ export async function maybeNotifyOnExit(
   const summary = output
     ? `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel}) :: ${output}`
     : `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel})`;
-  const eventText =
-    appendExecTimeoutRetryGuidance(summary, session.exitReason) +
-    execOutputLogNote(session.outputLog);
+  const eventText = [
+    appendExecTimeoutRetryGuidance(summary, session.exitReason),
+    execOutputLogNote(session.outputLog).trim(),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const eventSessionKey =
     session.notifySessionTarget?.sessionKey ??
     resolveEventSessionKeyForPolicy(sessionKey, session.eventRouting);

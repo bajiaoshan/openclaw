@@ -6,6 +6,7 @@ import {
   type ExecAutoReviewDecision,
 } from "../infra/exec-auto-review.js";
 import { tail as tailOutput } from "./bash-process-registry.js";
+import { execOutputLogNote, type ExecOutputLog } from "./bash-tools.exec-output-log.js";
 import { appendExecTimeoutRetryGuidance, normalizeNotifyOutput } from "./bash-tools.exec-output.js";
 import type {
   ExecApprovalFollowupOutcome,
@@ -368,8 +369,10 @@ export function buildGatewayExecApprovalFollowupSummary(params: {
   outcome: ExecApprovalFollowupOutcome;
   trigger?: string;
   approvalFollowupText?: string;
+  outputLog?: ExecOutputLog;
 }): string {
   const exitLabel = formatOutcomeExitLabel(params.outcome);
+  const outputLogNote = execOutputLogNote(params.outputLog);
   let summary: string;
   if (params.trigger === "diagnostics") {
     const diagnosticsText =
@@ -377,12 +380,14 @@ export function buildGatewayExecApprovalFollowupSummary(params: {
         ? formatDiagnosticsExportSuccess(params.outcome.aggregated)
         : formatDiagnosticsExportFailure({ outcome: params.outcome, exitLabel });
     const followupText = params.approvalFollowupText?.trim();
-    const body = [diagnosticsText, followupText].filter(Boolean).join("\n\n");
+    const body = outputLogNote + [diagnosticsText, followupText].filter(Boolean).join("\n\n");
     summary = `Exec finished (gateway id=${params.approvalId}, session=${params.sessionId}, ${exitLabel})\n${body}`;
   } else {
-    const output = formatExecApprovalContinuationSourceOutput([
-      { label: "output", value: params.outcome.aggregated },
-    ]);
+    const output =
+      outputLogNote +
+      formatExecApprovalContinuationSourceOutput([
+        { label: "output", value: params.outcome.aggregated },
+      ]);
     summary = output
       ? `Exec finished (gateway id=${params.approvalId}, session=${params.sessionId}, ${exitLabel})\n${output}`
       : `Exec finished (gateway id=${params.approvalId}, session=${params.sessionId}, ${exitLabel})`;

@@ -81,7 +81,6 @@ import {
   resolveExecHostApprovalContext,
   sendExecApprovalFollowupResult,
 } from "./bash-tools.exec-host-shared.js";
-import { execOutputLogNote } from "./bash-tools.exec-output-log.js";
 import { createApprovalSlug, runExecProcess } from "./bash-tools.exec-runtime.js";
 import type {
   ExecApprovalFollowupFactory,
@@ -1295,11 +1294,9 @@ export async function processGatewayAllowlist(
         outcome,
         trigger: params.trigger,
         approvalFollowupText,
+        outputLog: run.session.outputLog,
       });
-      await sendExecApprovalFollowupResult(
-        followupTarget,
-        summary + execOutputLogNote(run.session.outputLog),
-      );
+      await sendExecApprovalFollowupResult(followupTarget, summary);
     })()
       .catch(async (): Promise<void> => {
         // Once dispatch starts, a delivery failure cannot mean execution was denied.

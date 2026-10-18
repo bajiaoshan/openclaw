@@ -77,17 +77,25 @@ export function execOutputLogDetails(log?: ExecOutputLog) {
     : {};
 }
 
+export function canRecoverExecOutput(
+  log: ExecOutputLog | undefined,
+  discardedChars: number,
+): boolean {
+  // A truncated saved prefix can still cover everything discarded from the in-memory tail.
+  return Boolean(log?.path && !log.failed && log.chars >= discardedChars);
+}
+
 export function execOutputLogNote(log?: ExecOutputLog): string {
   if (!log) {
     return "";
   }
   if (!log.path) {
-    return "\n\n[Output capture failed; command execution continued. Check disk space and workdir permissions.]";
+    return "[Output capture failed; command execution continued. Check disk space and workdir permissions.]\n\n";
   }
   const limitation = log.failed
     ? " Write failed; saved content may be incomplete."
     : log.truncated
       ? " Only the first 2 MiB of output was retained."
       : "";
-  return `\n\n[${formatFullOutputFooter(log.path)}.${limitation}]`;
+  return `[${formatFullOutputFooter(log.path)}.${limitation}]\n\n`;
 }

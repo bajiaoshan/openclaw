@@ -23,7 +23,11 @@ import {
   prepareSessionPoll,
 } from "./bash-process-registry.js";
 import { describeProcessTool } from "./bash-tools.descriptions.js";
-import { execOutputLogDetails, execOutputLogNote } from "./bash-tools.exec-output-log.js";
+import {
+  canRecoverExecOutput,
+  execOutputLogDetails,
+  execOutputLogNote,
+} from "./bash-tools.exec-output-log.js";
 import {
   EXEC_MANUAL_COLLECTION_FOLLOW_UP,
   EXEC_RETENTION_CAP_NOTE,
@@ -102,7 +106,8 @@ function defaultTailNote(totalLines: number, usingDefaultTail: boolean) {
 function retentionCapNote(
   session: Pick<ProcessSession, "totalOutputChars" | "aggregated" | "outputLog">,
 ) {
-  return session.totalOutputChars > session.aggregated.length && !session.outputLog
+  const discardedChars = session.totalOutputChars - session.aggregated.length;
+  return discardedChars > 0 && !canRecoverExecOutput(session.outputLog, discardedChars)
     ? EXEC_RETENTION_CAP_NOTE
     : "";
 }
@@ -192,16 +197,16 @@ function finishedPollResult(
       ? "[earlier output is omitted from this poll; use action=log with offset and limit to inspect retained output]\n\n"
       : "[earlier output is omitted from this poll; omitted output is no longer available through action=log]\n\n"
     : "";
-  const text =
-    appendExecTimeoutRetryGuidance(
-      retentionCapNote(finished) +
-        retainedOutputNote +
-        (output || "(no new output)") +
-        (isConfirmedRequestedStop(finished)
-          ? `\n\nProcess stopped by request (${renderExecExitLabel(finished)}).`
-          : `\n\nProcess exited with ${renderExecExitLabel(finished)}.`),
-      finished.exitReason,
-    ) + execOutputLogNote(finished.outputLog);
+  const text = appendExecTimeoutRetryGuidance(
+    retentionCapNote(finished) +
+      execOutputLogNote(finished.outputLog) +
+      retainedOutputNote +
+      (output || "(no new output)") +
+      (isConfirmedRequestedStop(finished)
+        ? `\n\nProcess stopped by request (${renderExecExitLabel(finished)}).`
+        : `\n\nProcess exited with ${renderExecExitLabel(finished)}.`),
+    finished.exitReason,
+  );
   return attachInternalToolResultAcknowledgement(
     textResult(text, {
       ...finishedSessionDetails(sessionId, finished),
@@ -449,11 +454,11 @@ export function createProcessTool(
             const runtime = describeRunningSession(scopedSession);
             const text =
               aggregateOutputNote +
+              execOutputLogNote(scopedSession.outputLog) +
               retainedOutputNote +
               (output || "(no new output)") +
               (buildInputWaitHint(runtime.waitingForInput) || "\n\nProcess still running.") +
-              (runtime.followUp ? `\n\n${runtime.followUp}` : "") +
-              execOutputLogNote(scopedSession.outputLog);
+              (runtime.followUp ? `\n\n${runtime.followUp}` : "");
             return attachInternalToolResultAcknowledgement(
               textResult(text, {
                 status: "running",
@@ -487,18 +492,17 @@ export function createProcessTool(
             const runtime = scopedSession ? describeRunningSession(scopedSession) : undefined;
             const text =
               retentionCapNote(record) +
+              execOutputLogNote(record.outputLog) +
               (slice || (scopedSession ? "(no output yet)" : "(no output recorded)")) +
               defaultTailNote(totalLines, window.usingDefaultTail) +
               (isConfirmedRequestedStop(record)
                 ? `\n\nProcess stopped by request (${renderExecExitLabel(record)}).`
                 : "");
-            const output =
-              (runtime
-                ? text +
-                  buildInputWaitHint(runtime.waitingForInput) +
-                  (runtime.followUp ? `\n\n${runtime.followUp}` : "")
-                : appendExecTimeoutRetryGuidance(text, record.exitReason)) +
-              execOutputLogNote(record.outputLog);
+            const output = runtime
+              ? text +
+                buildInputWaitHint(runtime.waitingForInput) +
+                (runtime.followUp ? `\n\n${runtime.followUp}` : "")
+              : appendExecTimeoutRetryGuidance(text, record.exitReason);
             return textResult(output, {
               ...(runtime
                 ? {

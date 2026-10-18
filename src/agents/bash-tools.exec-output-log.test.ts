@@ -11,6 +11,8 @@ import { resetProcessRegistryForTests } from "./bash-process-registry.test-suppo
 import { createExecTool } from "./bash-tools.exec-run.js";
 import type { ExecToolDefaults, ExecToolDetails } from "./bash-tools.exec-types.js";
 import { createProcessTool } from "./bash-tools.process.js";
+import type { AgentToolResult } from "./runtime/index.js";
+import { capToolResultForPersistence } from "./session-tool-result-guard.payload.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 let workdir: string;
@@ -55,7 +57,7 @@ async function command(source: string): Promise<string> {
 }
 
 function outputPath(details: ExecToolDetails): string {
-  const filePath = expectDefined(details.fullOutputPath);
+  const filePath = expectDefined(details.fullOutputPath, "saved exec output path");
   expect(path.dirname(path.dirname(filePath))).toBe(workdir);
   return filePath;
 }
@@ -64,7 +66,36 @@ async function artifacts(): Promise<string[]> {
   return (await fs.readdir(workdir)).filter((name) => name.startsWith(".openclaw-exec-"));
 }
 
+function persistedText(toolName: string, result: AgentToolResult<unknown>): string {
+  const message = capToolResultForPersistence(
+    {
+      role: "toolResult",
+      toolCallId: "saved-output",
+      toolName,
+      content: result.content,
+      details: result.details,
+      isError: false,
+      timestamp: 0,
+    },
+    8_000,
+  );
+  return message.role === "toolResult"
+    ? message.content.flatMap((block) => (block.type === "text" ? block.text : [])).join("\n")
+    : "";
+}
+
 describe("exec saved output artifacts", () => {
+  it("keeps the saved-output reference visible through the session persistence cap", async () => {
+    const result = await execTool().execute("saved-long-output", {
+      command: await command('process.stdout.write("x".repeat(80000));'),
+      saveOutput: true,
+    });
+    const filePath = outputPath(result.details);
+    const visible = persistedText("exec", result);
+    expect(visible.length).toBeLessThan(80_000);
+    expect(visible).toContain(filePath);
+    expect(await fs.readFile(filePath, "utf8")).toBe("x".repeat(80_000));
+  });
   it("preserves failed-command output beyond memory retention as an explicit incognito artifact", async () => {
     const result = await execTool({
       sessionKey: "agent:main:dashboard:incognito-output-artifact",
@@ -158,18 +189,28 @@ describe("exec saved output artifacts", () => {
     }
   });
 
-  it("bounds saved UTF-8 output and reports a partial artifact without splitting characters", async () => {
-    const result = await execTool().execute("saved-large-unicode", {
-      command: await command('process.stdout.write("界".repeat(800000));'),
-      saveOutput: true,
-    });
-    expect(result.details).toMatchObject({ status: "completed", spillTruncated: true });
-    const saved = await fs.readFile(outputPath(result.details));
-    expect(saved.length).toBeGreaterThan(2 * 1024 * 1024 - 3);
-    expect(saved.length).toBeLessThanOrEqual(2 * 1024 * 1024);
-    expect(saved.toString("utf8")).toBe("界".repeat(Math.floor((2 * 1024 * 1024) / 3)));
-    expect(result.details).toHaveProperty("spilledChars", saved.toString("utf8").length);
-  });
+  it.each([
+    { outputChars: 800_000, hasGap: false },
+    { outputChars: 1_000_000, hasGap: true },
+  ])(
+    "bounds UTF-8 output and discloses uncovered loss ($outputChars chars)",
+    async ({ outputChars, hasGap }) => {
+      const result = await execTool().execute("saved-large-unicode", {
+        command: await command(`process.stdout.write("界".repeat(${outputChars}));`),
+        saveOutput: true,
+      });
+      expect(result.details).toMatchObject({ status: "completed", spillTruncated: true });
+      const saved = await fs.readFile(outputPath(result.details));
+      expect(saved.length).toBeGreaterThan(2 * 1024 * 1024 - 3);
+      expect(saved.length).toBeLessThanOrEqual(2 * 1024 * 1024);
+      expect(saved.toString("utf8")).toBe("界".repeat(Math.floor((2 * 1024 * 1024) / 3)));
+      expect(result.details).toHaveProperty("spilledChars", saved.toString("utf8").length);
+      const visible = persistedText("exec", result);
+      expect(visible.startsWith("[earlier output was discarded at the retention cap")).toBe(hasGap);
+      expect(visible).toContain(outputPath(result.details));
+      expect(visible).toContain("Only the first 2 MiB");
+    },
+  );
 
   it("leaves command output on disk only when saving is requested", async () => {
     const result = await execTool().execute("unsaved-output", {
@@ -180,22 +221,52 @@ describe("exec saved output artifacts", () => {
     expect(await artifacts()).toEqual([]);
   });
 
-  it("runs the command and reports a capture failure when artifact creation fails", async () => {
-    vi.mocked(mkdtemp).mockRejectedValueOnce(new Error("EACCES: artifact directory denied"));
-    const result = await execTool().execute("capture-unavailable", {
-      command: await command('process.stdout.write("COMMAND_STILL_RAN");'),
-      saveOutput: true,
-    });
-    expect(result.details).toMatchObject({
-      status: "completed",
-      exitCode: 0,
-      aggregated: "COMMAND_STILL_RAN",
-      outputLogError: expect.stringContaining("Output capture failed"),
-    });
-    expect(result.details).not.toHaveProperty("fullOutputPath");
-    expect(JSON.stringify(result.content)).toContain("Output capture failed");
-    expect(await artifacts()).toEqual([]);
-  });
+  it.for(["foreground", "process"] as const)(
+    "discloses irreversible output loss after capture fails (%s)",
+    async (mode, { signal }) => {
+      vi.mocked(mkdtemp).mockRejectedValueOnce(new Error("EACCES: artifact directory denied"));
+      const result = await execTool().execute("capture-unavailable", {
+        command: await command('process.stdout.write("x".repeat(250000) + "COMMAND_STILL_RAN");'),
+        background: mode === "process",
+        saveOutput: true,
+      });
+      const results: AgentToolResult<unknown>[] = [];
+      if (mode === "process") {
+        if (result.details.status !== "running") {
+          throw new Error("expected background exec handle");
+        }
+        await withinTest(waitForExecScope(workdir), signal);
+        const processTool = createProcessTool({ scopeKey: workdir });
+        for (const action of ["poll", "log"] as const) {
+          results.push(
+            await processTool.execute("collect-capture-failure", {
+              action,
+              sessionId: result.details.sessionId,
+            }),
+          );
+        }
+      } else {
+        expect(result.details).toMatchObject({
+          status: "completed",
+          exitCode: 0,
+          aggregated: expect.stringContaining("COMMAND_STILL_RAN"),
+        });
+        results.push(result);
+      }
+      for (const collected of results) {
+        expect(collected.details).toMatchObject({
+          outputLogError: expect.stringContaining("Output capture failed"),
+        });
+        expect(collected.details).not.toHaveProperty("fullOutputPath");
+        const visible = persistedText(mode === "process" ? "process" : "exec", collected);
+        expect(visible).toMatch(
+          /^\[earlier output was discarded at the retention cap and cannot be recovered\]/,
+        );
+        expect(visible).toContain("Output capture failed");
+      }
+      expect(await artifacts()).toEqual([]);
+    },
+  );
 
   it.each(["node", "sandbox"] as const)(
     "rejects unsupported %s capture without creating artifacts",
