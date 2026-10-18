@@ -1,6 +1,11 @@
 import type { ExecHost } from "../infra/exec-approvals.js";
 import { normalizeAgentId } from "../routing/session-key.js";
 import { resolveAgentConfig } from "./agent-scope-config.js";
+import {
+  execOutputLogDetails,
+  execOutputLogNote,
+  type ExecOutputLog,
+} from "./bash-tools.exec-output-log.js";
 import { EXEC_RETENTION_CAP_NOTE, renderExecOutputText } from "./bash-tools.exec-output.js";
 import type { ExecToolArgs } from "./bash-tools.exec-request-preparation.js";
 import { resolveExecTarget } from "./bash-tools.exec-runtime.js";
@@ -30,11 +35,14 @@ export function buildExecForegroundResult(params: {
   cwd?: string;
   warningText?: string;
   aggregateOutputDropped?: boolean;
+  outputLog?: ExecOutputLog;
 }): AgentToolResult<ExecToolDetails> {
   const warningText = params.warningText?.trim() ? `${params.warningText}\n\n` : "";
-  const retentionCapNote = params.aggregateOutputDropped ? EXEC_RETENTION_CAP_NOTE : "";
+  const retentionCapNote =
+    params.aggregateOutputDropped && !params.outputLog ? EXEC_RETENTION_CAP_NOTE : "";
   const outcome = params.outcome;
   const details: ExecToolDetails = {
+    ...execOutputLogDetails(params.outputLog),
     status: outcome.status,
     exitCode: outcome.status === "failed" ? (outcome.exitCode ?? null) : outcome.exitCode,
     exitSignal: outcome.exitSignal,
@@ -56,10 +64,10 @@ export function buildExecForegroundResult(params: {
           "SIGKILL alone does not identify whether the Linux OOM killer, an operator, or another process sent it. " +
           "Check cgroup memory events or kernel logs. If they show memory pressure, narrow the command or adjust memory, concurrency, or resource limits."
         : "";
-    const outputText = `${retentionCapNote}${warningText}${params.outcome.reason}${linuxOomGuidance}`;
+    const outputText = `${retentionCapNote}${warningText}${params.outcome.reason}${linuxOomGuidance}${execOutputLogNote(params.outputLog)}`;
     return failedTextResult(outputText, { ...details, status: "failed" });
   }
-  const outputText = `${retentionCapNote}${warningText}${renderExecOutputText(params.outcome.aggregated)}`;
+  const outputText = `${retentionCapNote}${warningText}${renderExecOutputText(params.outcome.aggregated)}${execOutputLogNote(params.outputLog)}`;
   return textResult(outputText, details);
 }
 

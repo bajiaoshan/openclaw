@@ -41,6 +41,7 @@ import { ToolInputError } from "./tools/common.js";
 
 export type ExecToolArgs = Record<string, unknown> & {
   command: string;
+  saveOutput?: boolean;
   workdir?: string;
   env?: Record<string, string>;
   yieldMs?: number;
@@ -75,6 +76,9 @@ const XML_ARG_VALUE_EXEC_PARAM_KEYS = ["command", "workdir", "host", "ask", "nod
 export function assertSupportedExecParams(args: unknown): void {
   if (!isRecord(args)) {
     return;
+  }
+  if (args.saveOutput !== undefined && typeof args.saveOutput !== "boolean") {
+    throw new ToolInputError("exec saveOutput must be a boolean");
   }
   if (typeof args.command === "string" && args.command.includes("\0")) {
     throw new ToolInputError(
