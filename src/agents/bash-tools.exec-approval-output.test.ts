@@ -30,6 +30,8 @@ describe("approved exec saved output", () => {
         approvalId: "approval",
         sessionId: "session",
         trigger,
+        approvalFollowupText: " static follow-up ",
+        dynamicFollowupText: " dynamic follow-up ",
         outcome: {
           status: "completed",
           exitCode: 0,
@@ -38,6 +40,9 @@ describe("approved exec saved output", () => {
         },
         outputLog: { path: filePath, chars: 80_000, truncated: false, failed: false },
       });
+      if (trigger === "diagnostics") {
+        expect(summary).toContain("static follow-up\n\ndynamic follow-up");
+      }
       const persisted = capToolResultForPersistence(
         {
           role: "toolResult",

@@ -1,4 +1,5 @@
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { tail } from "./bash-process-registry.js";
 import { formatExecApprovalContinuationSourceOutput } from "./bash-tools.exec-approval-output.js";
 import { execOutputLogNote, type ExecOutputLog } from "./bash-tools.exec-output-log.js";
@@ -126,6 +127,7 @@ export function buildGatewayExecApprovalFollowupSummary(params: {
   outcome: ExecApprovalFollowupOutcome;
   trigger?: string;
   approvalFollowupText?: string;
+  dynamicFollowupText?: string;
   outputLog?: ExecOutputLog;
 }): string {
   const exitLabel = formatOutcomeExitLabel(params.outcome);
@@ -136,7 +138,10 @@ export function buildGatewayExecApprovalFollowupSummary(params: {
       params.outcome.status === "completed" && params.outcome.exitCode === 0
         ? formatDiagnosticsExportSuccess(params.outcome.aggregated)
         : formatDiagnosticsExportFailure({ outcome: params.outcome, exitLabel });
-    const followupText = params.approvalFollowupText?.trim();
+    const followupText = normalizeStringEntries([
+      params.approvalFollowupText ?? "",
+      params.dynamicFollowupText ?? "",
+    ]).join("\n\n");
     const body = outputLogNote + [diagnosticsText, followupText].filter(Boolean).join("\n\n");
     summary = `Exec finished (gateway id=${params.approvalId}, session=${params.sessionId}, ${exitLabel})\n${body}`;
   } else {

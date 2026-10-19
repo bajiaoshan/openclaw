@@ -2,7 +2,6 @@
  * Evaluates shell allowlists, auto-review, durable approvals, follow-up routing,
  * and approved command execution for gateway-backed exec calls.
  */
-import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { emitAgentEvent } from "../infra/agent-events.js";
 import { describeInterpreterInlineEval } from "../infra/command-analysis/inline-eval.js";
 import { detectInlineEvalInSegments } from "../infra/command-analysis/risks.js";
@@ -1238,16 +1237,13 @@ export async function processGatewayAllowlist(
         trigger: params.trigger,
         outcome,
       });
-      const approvalFollowupText = normalizeStringEntries([
-        params.approvalFollowupText ?? "",
-        dynamicFollowupText ?? "",
-      ]).join("\n\n");
       const summary = buildGatewayExecApprovalFollowupSummary({
         approvalId,
         sessionId: run.session.id,
         outcome,
         trigger: params.trigger,
-        approvalFollowupText,
+        approvalFollowupText: params.approvalFollowupText,
+        dynamicFollowupText,
         outputLog: run.session.outputLog,
       });
       await sendExecApprovalFollowupResult(followupTarget, summary);
