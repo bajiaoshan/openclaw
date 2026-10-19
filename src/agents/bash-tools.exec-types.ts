@@ -7,7 +7,6 @@ import type {
   ExecHost,
   ExecMode,
   ExecSecurity,
-  ExecTarget,
 } from "../infra/exec-approvals.js";
 import type { ExecAutoReviewer, ExecAutoReviewTranscript } from "../infra/exec-auto-review.js";
 import type { ExecRequestOwner } from "../infra/exec-request-context.js";
@@ -20,6 +19,7 @@ import type { SecretStoreExecEnvironment } from "../secrets/store/secret-store.j
 import type { ToolApprovalReview } from "../shared/tool-approval-reviews.js";
 import type { DeliveryContext } from "../utils/delivery-context.shared.js";
 import type { OperationalRunInstanceRef } from "./admitted-run-context.js";
+import type { ExecToolRoutingDefaults } from "./bash-tools.exec-routing.types.js";
 import type { BashSandboxConfig } from "./bash-tools.shared.js";
 import type { EmbeddedFullAccessBlockedReason } from "./embedded-agent-runner/types.js";
 import type { ExecReviewerConfig } from "./exec-auto-reviewer.js";
@@ -63,18 +63,12 @@ export type ExecProcessOutcome =
       reason: string;
     };
 
-export type ExecToolDefaults = {
+export type ExecToolDefaults = ExecToolRoutingDefaults & {
   hasCronTool?: boolean;
-  host?: ExecTarget;
   mode?: ExecMode;
   bypassHostApprovalFloors?: boolean;
-  security?: ExecSecurity;
-  ask?: ExecAsk;
   trigger?: string;
   continuesConversation?: boolean;
-  node?: string;
-  /** Default working directory for node-host execution only. */
-  nodeCwd?: string;
   pathPrepend?: string[];
   safeBins?: string[];
   strictInlineEval?: boolean;

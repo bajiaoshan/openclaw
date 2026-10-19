@@ -335,8 +335,8 @@ export function prepareExecExitNotification(
           sessionKey: targetKey,
           sessionId: target.sessionId,
         });
-        // Retain the originating runs, so a completion turn cannot extend its own lifetime.
-        target.assertCurrent = () => {
+        // The originating run must survive queue acceptance, not the queued follow-up.
+        session.assertExitNotificationAcceptanceCurrent = () => {
           if (!runs.some((run) => hasAgentRunContextExecutionOwner(run.runId))) {
             throw new Error("Originating cron run ended; inspect the result with process log");
           }
@@ -396,15 +396,13 @@ export async function maybeNotifyOnExit(
     await session.clearExitNotification?.();
     return;
   }
-  const summary = output
-    ? `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel}) :: ${output}`
-    : `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel})`;
-  const eventText = [
-    appendExecTimeoutRetryGuidance(summary, session.exitReason),
-    execOutputLogNote(session.outputLog).trim(),
-  ]
+  const completionOutput = [output, execOutputLogNote(session.outputLog).trim()]
     .filter(Boolean)
     .join("\n\n");
+  const summary = completionOutput
+    ? `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel}) :: ${completionOutput}`
+    : `Exec ${status} (${session.id.slice(0, 8)}, ${exitLabel})`;
+  const eventText = appendExecTimeoutRetryGuidance(summary, session.exitReason);
   const eventSessionKey =
     session.notifySessionTarget?.sessionKey ??
     resolveEventSessionKeyForPolicy(sessionKey, session.eventRouting);
@@ -432,6 +430,7 @@ export async function maybeNotifyOnExit(
         processSessionInstanceId(session),
         {
           ...eventOptions,
+          assertAcceptanceCurrent: session.assertExitNotificationAcceptanceCurrent,
           onAdopted: session.clearExitNotification,
         },
       );

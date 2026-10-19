@@ -62,13 +62,17 @@ import {
   buildExecApprovalFollowupTarget,
   buildExecApprovalDeniedToolResult,
   buildExecAutoReviewDeniedToolResult,
-  buildGatewayExecApprovalFollowupSummary,
 } from "./bash-tools.exec-approval-output.js";
 import {
   buildExecApprovalTurnSourceContext,
   registerExecApprovalRequestForHostOrThrow,
 } from "./bash-tools.exec-approval-request.js";
 import { prepareCronStandingGrantConsumption } from "./bash-tools.exec-cron-grant.js";
+import {
+  buildGatewayExecApprovalFollowupSummary,
+  buildGatewayExecApprovalDeniedToolResult,
+  resolveGatewayExecApprovalFollowupText,
+} from "./bash-tools.exec-host-gateway.output.js";
 import type {
   ProcessGatewayAllowlistParams,
   ProcessGatewayAllowlistResult,
@@ -82,12 +86,7 @@ import {
   sendExecApprovalFollowupResult,
 } from "./bash-tools.exec-host-shared.js";
 import { createApprovalSlug, runExecProcess } from "./bash-tools.exec-runtime.js";
-import type {
-  ExecApprovalFollowupFactory,
-  ExecApprovalFollowupOutcome,
-  ExecToolApprovalReview,
-  ExecToolDetails,
-} from "./bash-tools.exec-types.js";
+import type { ExecToolApprovalReview, ExecToolDetails } from "./bash-tools.exec-types.js";
 import { abortable } from "./embedded-agent-runner/run/abortable.js";
 import type { AgentToolResult } from "./runtime/index.js";
 
@@ -152,29 +151,6 @@ function publishGatewayGuardianReview(
   });
 }
 
-function buildGatewayExecApprovalDeniedToolResult(params: {
-  approvalId?: string;
-  deniedReason: string;
-  command: string;
-  cwd: string;
-}): AgentToolResult<ExecToolDetails> {
-  const denialContext = params.approvalId
-    ? `gateway id=${params.approvalId}, ${params.deniedReason}`
-    : params.deniedReason;
-  const text = `Exec denied (${denialContext}): ${params.command}`;
-  return {
-    content: [{ type: "text", text }],
-    details: {
-      status: "failed",
-      exitCode: null,
-      durationMs: 0,
-      aggregated: text,
-      timedOut: params.deniedReason.includes("timeout"),
-      cwd: params.cwd,
-    },
-  };
-}
-
 async function resolveGatewayExecApprovalDrift(params: {
   binding?: SystemRunMutableFileBinding;
   cwdSnapshot?: ApprovedCwdSnapshot;
@@ -210,29 +186,6 @@ async function revalidateGatewayExecApprovalBinding(params: {
         cwd: params.cwd,
       })
     : undefined;
-}
-
-async function resolveGatewayExecApprovalFollowupText(params: {
-  approvalFollowup?: ExecApprovalFollowupFactory;
-  approvalId: string;
-  sessionId: string;
-  trigger?: string;
-  outcome: ExecApprovalFollowupOutcome;
-}): Promise<string | undefined> {
-  if (!params.approvalFollowup) {
-    return undefined;
-  }
-  try {
-    return await params.approvalFollowup({
-      approvalId: params.approvalId,
-      sessionId: params.sessionId,
-      trigger: params.trigger,
-      outcome: params.outcome,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return `Diagnostics follow-up failed: ${message}`;
-  }
 }
 
 /** Processes gateway exec policy and returns execution/approval/denial outcome. */
@@ -998,6 +951,7 @@ export async function processGatewayAllowlist(
     const resolveApprovalForExecution = async (onFailure: () => void | Promise<void>) => {
       const approvalOutcome = await resolveExecApprovalWaitOutcome({
         approvalId,
+        expiresAtMs,
         preResolvedDecision,
         signal: params.signal,
         askFallback,
