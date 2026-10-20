@@ -85,6 +85,26 @@ function persistedText(toolName: string, result: AgentToolResult<unknown>): stri
 }
 
 describe("exec saved output artifacts", () => {
+  it("rejects caller Git configuration before starting a saved-output command", async () => {
+    const launchMarker = path.join(workdir, "launched");
+    const invocation = await command(
+      `require("node:fs").writeFileSync(${JSON.stringify(launchMarker)}, "started");`,
+    );
+    for (const name of ["GIT_CONFIG_PARAMETERS", " git_config_parameters "]) {
+      await expect(
+        execTool().execute("rejected-git-override", {
+          command: invocation,
+          env: { [name]: "'core.hooksPath=untrusted'" },
+          saveOutput: true,
+        }),
+      ).rejects.toThrow(
+        /Security Violation: Environment variable 'GIT_CONFIG_PARAMETERS' is forbidden/,
+      );
+    }
+    expect(await fs.readdir(workdir)).not.toContain("launched");
+    expect(await artifacts()).toEqual([]);
+  });
+
   it("keeps the saved-output reference visible through the session persistence cap", async () => {
     const result = await execTool().execute("saved-long-output", {
       command: await command('process.stdout.write("x".repeat(80000));'),

@@ -564,11 +564,15 @@ export function resolvePreparedExecEnvironment(params: {
     ...(params.host === "gateway" ? params.localIdentityEnv : undefined),
   };
   // Inherited Git parameters can contain credentials; keep them out of request overrides.
+  // These reads retain host-owned policy, not caller overrides (rejected above).
+  // The broad string matcher also reports trusted reads; see #176328.
   const gitPolicyEnv =
     params.host === "gateway" && params.localGitConfigParameters
       ? {
           GIT_CONFIG_PARAMETERS: [
+            // nosemgrep: security.opengrep.ghsa-j425-whc4-4jgc.openclaw-dangerous-host-env-override-pivots
             resolveEnvironmentValue(preparedEnv, "GIT_CONFIG_PARAMETERS") ??
+              // nosemgrep: security.opengrep.ghsa-j425-whc4-4jgc.openclaw-dangerous-host-env-override-pivots
               resolveEnvironmentValue(env, "GIT_CONFIG_PARAMETERS"),
             params.localGitConfigParameters,
           ]
