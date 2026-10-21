@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { ExtraGatewayService } from "../../daemon/inspect.js";
+import { defaultRuntime } from "../../runtime.js";
 import { printDaemonStatus } from "./status.print.js";
 
 export function registerServiceInspectionHintTests(params: {
@@ -8,6 +9,36 @@ export function registerServiceInspectionHintTests(params: {
   };
   output: () => string;
 }) {
+  it.each([undefined, "windows-task-inspection-failed"] as const)(
+    "prints Windows launcher parse details when the reason is %s",
+    (inspectionReason) => {
+      printDaemonStatus(
+        {
+          service: {
+            label: "Scheduled Task",
+            loaded: true,
+            loadState: { status: "loaded" },
+            loadedText: "registered",
+            notLoadedText: "missing",
+            inspectionReason,
+            runtime: {
+              status: "unknown",
+              inspectionFailure: {
+                code: "service-runtime-inspection-failed",
+                detail: "Launcher line 4: invalid environment assignment.",
+              },
+            },
+          },
+          extraServices: [],
+        },
+        { json: false, deep: true },
+      );
+      expect(defaultRuntime.error).toHaveBeenCalledWith(
+        expect.stringContaining("Launcher line 4: invalid environment assignment."),
+      );
+    },
+  );
+
   it.each([
     {
       platform: "linux",

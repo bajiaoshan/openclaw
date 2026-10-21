@@ -425,11 +425,10 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean; d
     spacer();
   }
 
-  const serviceInspectionDetail = service.inspectionReason
-    ? formatServiceInspectionReason(service.inspectionReason)
-    : service.loadState.status === "unknown"
-      ? service.loadState.detail
-      : undefined;
+  const serviceInspectionDetail =
+    service.runtime?.inspectionFailure?.detail ??
+    (service.inspectionReason && formatServiceInspectionReason(service.inspectionReason)) ??
+    (service.loadState.status === "unknown" ? service.loadState.detail : undefined);
   if (serviceInspectionDetail) {
     defaultRuntime.error(
       managerUnavailable
