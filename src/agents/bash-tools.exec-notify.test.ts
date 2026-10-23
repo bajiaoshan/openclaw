@@ -13,7 +13,6 @@ import { readSessionEntryReadOnlyInWorker } from "../config/sessions/session-ent
 import type { InternalSessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { rotateAgentEventLifecycleGeneration } from "../infra/agent-events.js";
-import { isExecCompletionSystemEvent } from "../infra/heartbeat-events-filter.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import {
   createAgentDatabaseInspectionRefusal,
@@ -189,7 +188,8 @@ describe("background exec completion obligations", () => {
       const { text, options } = lastNotification();
       expect(text).toContain(process.outputLog.path);
       expect(text).toContain(EXEC_TIMEOUT_RETRY_GUIDANCE);
-      expect(isExecCompletionSystemEvent({ text, contextKey: options.contextKey })).toBe(true);
+      expect(options.source).toBe("exec");
+      expect(options.contextKey).toBe(`exec:${process.id}`);
     });
   });
 
