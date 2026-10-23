@@ -64,11 +64,31 @@ for (const engine of engines) {
       const program = createVisibilityProgram();
       const flags = await engine.complete(program, [...prefix, "--"]);
       expect(flags).toContain(visible);
+      expect(flags).toContain("--help");
       expect(flags).not.toContain(hidden);
       const commands = await engine.complete(program, [...prefix, ""]);
       expect(commands).toEqual(expect.arrayContaining(["visible", "public"]));
       expect(commands).not.toContain("hidden");
       expect(commands).not.toContain("private");
+    });
+
+    engine.test("uses each command's implicit help option", async () => {
+      const program = new Command().name("openclaw");
+      program.command("custom").helpOption("-H, --assist", "Show command help");
+      program.command("disabled").helpOption(false);
+      program.command("hidden").addHelpOption(new Option("-h, --help").hideHelp());
+      program.command("shadowed").option("-h, --host <host>");
+
+      for (const [words, expected] of [
+        [["openclaw", "-h"], ["-h"]],
+        [["openclaw", "custom", "--ass"], ["--assist"]],
+        [["openclaw", "custom", "--he"], []],
+        [["openclaw", "disabled", "--he"], []],
+        [["openclaw", "hidden", "--he"], []],
+        [["openclaw", "shadowed", "--he"], ["--help"]],
+      ] as const) {
+        expect(await engine.complete(program, [...words]), words.join(" ")).toEqual(expected);
+      }
     });
 
     engine.test("keeps the context after a typed hidden value option", async () => {
