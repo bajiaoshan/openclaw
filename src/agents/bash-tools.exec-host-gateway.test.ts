@@ -45,6 +45,7 @@ import { createProcessSupervisor } from "../process/supervisor/supervisor.js";
 import type { ProcessSupervisor } from "../process/supervisor/types.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { resetProcessRegistryForTests } from "./bash-process-registry.test-support.js";
+import { captureProcessUnhandledRejections } from "./bash-tools.exec-runtime.test-support.js";
 import type {
   ExecApprovalFollowupFactory,
   ExecApprovalFollowupOutcome,
@@ -220,19 +221,6 @@ function requireSentFollowupText(callIndex = 0): string {
   return sendExecApprovalFollowupResultMock.mock.calls[callIndex]?.[1] ?? "";
 }
 
-function captureProcessUnhandledRejections() {
-  const reasons: unknown[] = [];
-  const originalProcessEmit = process.emit.bind(process);
-  const processEmit = vi.spyOn(process, "emit").mockImplementation((event, ...args) => {
-    if (event === "unhandledRejection") {
-      reasons.push(args[0]);
-      return true;
-    }
-    return originalProcessEmit(event, ...args);
-  });
-  return { reasons, restore: () => processEmit.mockRestore() };
-}
-
 function captureSecurityEvents(): {
   events: Extract<DiagnosticEventPayload, { type: "security.event" }>[];
   stop: () => void;
@@ -262,12 +250,9 @@ describe("processGatewayAllowlist", () => {
       segmentAllowlistEntries: [{ pattern: "/usr/bin/echo", source: "allow-always" }],
       segmentSatisfiedBy: [],
     });
-    hasDurableExecApprovalMock.mockReset();
-    hasDurableExecApprovalMock.mockReturnValue(true);
-    hasExactCommandDurableExecApprovalMock.mockReset();
-    hasExactCommandDurableExecApprovalMock.mockReturnValue(false);
-    requiresExecApprovalMock.mockReset();
-    requiresExecApprovalMock.mockReturnValue(false);
+    hasDurableExecApprovalMock.mockReset().mockReturnValue(true);
+    hasExactCommandDurableExecApprovalMock.mockReset().mockReturnValue(false);
+    requiresExecApprovalMock.mockReset().mockReturnValue(false);
     buildEnforcedShellCommandMock.mockReset();
     buildEnforcedShellCommandMock.mockReturnValue({
       ok: false,
@@ -1180,6 +1165,9 @@ describe("processGatewayAllowlist", () => {
     expect(followupText).toContain("Diagnostics export created.");
     expect(followupText).toContain("Path: /tmp/openclaw-diagnostics.zip");
     expect(followupText).toContain("Contents (2 files):");
+    expect(followupText).toContain("Size: 1234 bytes");
+    expect(followupText).toContain("Privacy:\n- payload-free: yes\n- raw logs included: no");
+    expect(followupText).toContain("- Logs keep operational summaries.");
     expect(followupText).toContain("OpenAI Codex harness:");
     expect(followupText).toContain("Codex diagnostics sent to OpenAI servers:");
     expect(followupText).toContain("Codex thread id: `thread-1`");
