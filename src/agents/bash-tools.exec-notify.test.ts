@@ -149,7 +149,7 @@ async function withFixture(
           return process;
         },
         recover: (recoveryConfig = config) =>
-          recoverExecExitNotifications(recoveryConfig, new AbortController().signal),
+          recoverExecExitNotifications(recoveryConfig, new AbortController().signal).settled,
       });
     } finally {
       resetProcessRegistryForTests();

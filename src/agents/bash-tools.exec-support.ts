@@ -7,8 +7,8 @@ import {
   type ExecOutputLog,
 } from "./bash-tools.exec-output-log.js";
 import { EXEC_RETENTION_CAP_NOTE, renderExecOutputText } from "./bash-tools.exec-output.js";
+import type { ExecProcessOutcome } from "./bash-tools.exec-output.js";
 import type {
-  ExecProcessOutcome,
   ExecToolApprovalReview,
   ExecToolDefaults,
   ExecToolDetails,
