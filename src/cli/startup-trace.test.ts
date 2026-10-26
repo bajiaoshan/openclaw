@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { flushDiagnosticsTimeline } from "../infra/diagnostics-timeline.js";
 import { createDeferredCore } from "../shared/deferred.js";
-import { createGatewayDispatchStartupTrace } from "./startup-trace.js";
+import { createGatewayDispatchStartupTrace, measureGatewayBootstrapStep } from "./startup-trace.js";
 
 function readTimelineEvents(timelinePath: string): Record<string, unknown>[] {
   flushDiagnosticsTimeline();
@@ -61,6 +61,22 @@ it.each(["gateway", "status"])("foreground progress: %s", async (command) => {
   }
 });
 
+it.each(["0", "1"])(
+  "captures phase memory before buffered logs flush (trace=%s)",
+  async (enabled) => {
+    vi.stubEnv("OPENCLAW_GATEWAY_STARTUP_TRACE", enabled);
+    const rss = vi.spyOn(process.memoryUsage, "rss").mockReturnValue(128 * 1024 * 1024);
+    const trace = makeTrace(["gateway"], "cli.main");
+    await trace.measure("gateway-run-select-environment", () => {});
+    rss.mockReturnValue(256 * 1024 * 1024);
+    trace.setLineFormatter((message) => message);
+    expect(messages().at(-1)).toMatch(/ rssMb=128\.0 heapUsedMb=\d+\.\d\n$/);
+
+    await measureGatewayBootstrapStep("cli.bootstrap.admission.database-readiness", () => {});
+    expect(messages().at(-1)).toMatch(/ rssMb=256\.0 heapUsedMb=\d+\.\d\n$/);
+  },
+);
+
 it.each([
   [false, 2],
   [true, 0],
@@ -95,40 +111,32 @@ it.each([
   },
 );
 
-it("records entry marks and measured spans in the diagnostics timeline", async () => {
-  const { trace, timelinePath } = timelineFixture("timeline");
-  await trace.measure("run-main-import", () => Promise.resolve());
-  await expect(
-    trace.measure("command-execution", async () => "done", { timeline: false }),
-  ).resolves.toBe("done");
+it.each(["timeline", ""])(
+  "records startup phases with initial diagnostics=%j",
+  async (diagnostics) => {
+    const { trace, timelinePath } = timelineFixture(diagnostics);
+    await trace.measure("run-main-import", () => Promise.resolve());
+    await expect(
+      trace.measure("command-execution", async () => "done", { timeline: false }),
+    ).resolves.toBe("done");
 
-  const events = readTimelineEvents(timelinePath);
-  expect(events).toEqual(
-    expect.arrayContaining([
-      timelineEvent("mark", "bootstrap", {
-        durationMs: expect.any(Number),
-        attributes: expect.objectContaining({ totalMs: expect.any(Number) }),
-      }),
-      timelineEvent("span.start", "run-main-import"),
-      timelineEvent("span.end", "run-main-import", { durationMs: expect.any(Number) }),
-    ]),
-  );
-  expect(events).not.toContainEqual(expect.objectContaining({ name: "entry.command-execution" }));
-});
+    if (!diagnostics) {
+      expect(await trace.requiresDiagnosticsConfig()).toBe(true);
+      expect(fs.existsSync(timelinePath)).toBe(false);
+      await trace.configureDiagnosticsTimeline({ diagnostics: { flags: ["timeline"] } });
+    }
 
-it("flushes buffered startup phases when config enables the timeline", async () => {
-  const { trace, timelinePath } = timelineFixture("");
-  await trace.measure("run-main-import", async () => "loaded");
-
-  expect(await trace.requiresDiagnosticsConfig()).toBe(true);
-  expect(fs.existsSync(timelinePath)).toBe(false);
-
-  await trace.configureDiagnosticsTimeline({ diagnostics: { flags: ["timeline"] } });
-
-  expect(readTimelineEvents(timelinePath)).toEqual(
-    expect.arrayContaining([
-      timelineEvent("mark", "bootstrap"),
-      timelineEvent("span.end", "run-main-import", { durationMs: expect.any(Number) }),
-    ]),
-  );
-});
+    const events = readTimelineEvents(timelinePath);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        timelineEvent("mark", "bootstrap", {
+          durationMs: expect.any(Number),
+          attributes: expect.objectContaining({ totalMs: expect.any(Number) }),
+        }),
+        timelineEvent("span.start", "run-main-import"),
+        timelineEvent("span.end", "run-main-import", { durationMs: expect.any(Number) }),
+      ]),
+    );
+    expect(events).not.toContainEqual(expect.objectContaining({ name: "entry.command-execution" }));
+  },
+);
